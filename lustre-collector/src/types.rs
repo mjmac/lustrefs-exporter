@@ -358,6 +358,7 @@ impl Deref for TargetVariant {
 #[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize, Clone, Copy)]
 pub enum ControllerVariant {
     Osc,
+    Mdc,
 }
 
 #[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
@@ -385,6 +386,75 @@ pub struct ControllerStat<T> {
     pub param: Param,
     pub controller: Controller,
     pub value: T,
+}
+
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct TimedControllerStat<T> {
+    pub kind: ControllerVariant,
+    pub param: Param,
+    pub controller: Controller,
+    pub value: T,
+    pub header: StatsHeader,
+}
+
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct LliteTargetStat<T> {
+    pub target: Target,
+    pub param: Param,
+    pub value: T,
+}
+
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct KeyValue {
+    pub name: String,
+    pub value: u64,
+}
+
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct LocklessStats {
+    pub write_bytes: u64,
+    pub read_bytes: u64,
+    /// Printed by upstream 2.12.x and 2.14.0 to 2.14.52 only (LU-14838).
+    pub truncates: Option<u64>,
+}
+
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+/// Off by default (`ll_rw_stats_on`); the kernel then prints `disabled`.
+pub enum RwStats<T> {
+    Disabled,
+    Enabled { header: StatsHeader, value: T },
+}
+
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+/// I/O sizes in `[lower, upper)` bytes; the last row is the overflow bucket.
+pub struct ExtentsBucket {
+    pub lower_bytes: u64,
+    pub upper_bytes: u64,
+    pub overflow: bool,
+    pub read_calls: u64,
+    pub write_calls: u64,
+}
+
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ProcessExtents {
+    pub pid: u64,
+    pub buckets: Vec<ExtentsBucket>,
+}
+
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CountBucket {
+    pub key: u64,
+    pub count: u64,
+}
+
+#[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+/// Scalars and tables keep the kernel's names; the set varies by release.
+pub struct RpcStats {
+    pub scalars: Vec<KeyValue>,
+    /// mdc only: the one-sided `modify` histogram of `rpcs in flight`.
+    pub modify_rpcs_in_flight: Option<Vec<CountBucket>>,
+    /// The `read | write` tables, in the `brw_stats` row format.
+    pub histograms: Vec<BrwStats>,
 }
 
 #[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
@@ -504,6 +574,7 @@ pub enum HostStats {
     Memused(HostStat<u64>),
     LNetMemUsed(HostStat<u64>),
     HealthCheck(HostStat<HealthCheckStat>),
+    LustreVersion(HostStat<String>),
 }
 
 #[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
@@ -582,6 +653,11 @@ pub enum TargetStats {
     RecoveryTimeRemaining(TargetStat<u64>),
     RecoveryTotalClients(TargetStat<u64>),
     Llite(LliteStat),
+    LliteReadAheadStats(LliteStat),
+    LliteExtentsStats(LliteTargetStat<RwStats<Vec<ExtentsBucket>>>),
+    LliteExtentsStatsPerProcess(LliteTargetStat<RwStats<Vec<ProcessExtents>>>),
+    LliteStataheadStats(LliteTargetStat<Vec<KeyValue>>),
+    LliteUnstableStats(LliteTargetStat<Vec<KeyValue>>),
     ExportStats(TargetStat<Vec<ExportStats>>),
     Mds(MdsStat),
     Changelog(TargetStat<ChangelogStat>),
@@ -595,6 +671,31 @@ pub enum TargetStats {
 #[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ControllerStats {
     OscState(ControllerStat<OscState>),
+    /// ptlrpc request stats
+    Stats(TimedControllerStat<Vec<Stat>>),
+    MdStats(TimedControllerStat<Vec<Stat>>),
+    RpcStats(TimedControllerStat<RpcStats>),
+    IoLatencyStats(TimedControllerStat<Vec<BrwStats>>),
+    LocklessStats(TimedControllerStat<LocklessStats>),
+    UnstableStats(ControllerStat<Vec<KeyValue>>),
+    /// `osc.*.stats_compr` (DDN builds only)
+    CompressionStats(ControllerStat<Vec<KeyValue>>),
+    CurGrantBytes(ControllerStat<u64>),
+    CurDirtyBytes(ControllerStat<u64>),
+}
+
+impl ControllerStats {
+    pub fn controller(&self) -> &str {
+        match self {
+            Self::OscState(x) => &x.controller,
+            Self::Stats(x) | Self::MdStats(x) => &x.controller,
+            Self::RpcStats(x) => &x.controller,
+            Self::IoLatencyStats(x) => &x.controller,
+            Self::LocklessStats(x) => &x.controller,
+            Self::UnstableStats(x) | Self::CompressionStats(x) => &x.controller,
+            Self::CurGrantBytes(x) | Self::CurDirtyBytes(x) => &x.controller,
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
