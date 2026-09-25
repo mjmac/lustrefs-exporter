@@ -2,6 +2,9 @@
 source: lustrefs-exporter/src/routes.rs
 expression: body
 ---
+# HELP lustre_page_size_bytes Page size of this kernel in bytes, the unit of every statistic Lustre counts in pages.
+# TYPE lustre_page_size_bytes gauge
+lustre_page_size_bytes{} 4096
 # HELP lustre_health_healthy Indicates whether the Lustre server is healthy or not. 1 is healthy, 0 is unhealthy.
 # TYPE lustre_health_healthy gauge
 lustre_health_healthy{} 1
